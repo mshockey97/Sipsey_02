@@ -16,7 +16,7 @@ library(xts)
 library(dygraphs)
 library(parallel)
 library(devtools)
-devtools::install_github("khondula/rodm2")
+#devtools::install_github("khondula/rodm2")
 library(RSQLite)
 library(DBI)
 library(rodm2)
@@ -29,16 +29,16 @@ library(tidyverse)
 source("R/db_get_ts.R")
 
 #Define working dir
-working_dir<-"//nfs/njones-data/Research Projects/SWI/PT_Data/"
-
+data_dir<-"C:/Users/cnjones7/Box Sync/My Folders/Research Projects/SWI/PT_Data/"
+                        
 #Define output directory
-output_dir<-"//nfs/njones-data/Research Projects/SWI/Threshold_Analysis/"
+output_dir<-"C:/Users/cnjones7/Box Sync/My Folders/Research Projects/SWI/Threshold_Analysis/"
 
 #Set system time zone 
 Sys.setenv(TZ="America/New_York")
 
 #Define database connection
-db<-dbConnect(RSQLite::SQLite(),paste0(working_dir, "SWI.sqlite"))
+db<-dbConnect(RSQLite::SQLite(),paste0(data_dir, "SWI.sqlite"))
 
 #Define GW sites
 sites<-tibble(site_code = db_get_sites(db)) %>% 
