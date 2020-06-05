@@ -39,6 +39,7 @@ data_dir<-"C:\\Users\\cnjones7\\Box Sync\\My Folders\\Research Projects\\SWI\\PT
 pt_files<-list.files(paste0(data_dir, "export"), full.names =  TRUE)
 baro_files<-"C:\\Users\\cnjones7\\Box Sync\\My Folders\\Research Projects\\SWI\\PT_Data\\20190315_Downloads\\export\\SWI_BN_Baro.csv"
 field_files<-paste0(data_dir, 'well_log.csv')
+offset<-read_csv("C:\\Users\\cnjones7\\Box Sync\\My Folders\\Research Projects\\SWI\\PT_Data\\offset.csv")
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Step 2: Field Worksheet--------------------------------------------------------
@@ -82,17 +83,6 @@ df<-df %>%
          pressureGauge = pressureAbsolute-pressureBaro, 
          waterHeight   = pressureGauge/9.81)
 
-#Estimate offset for  waterDepth calculation
-offset<-df %>% 
-  arrange(Site_Name, desc(Timestamp)) %>% 
-  drop_na() %>% 
-  group_by(Site_Name) %>% 
-  filter(row_number()==1) %>% 
-  select(Site_Name, waterHeight) %>% 
-  left_join(.,field_log) %>% 
-  mutate(offset = Relative_Water_Level_m - waterHeight) %>% 
-  select(Site_Name, offset) 
-
 #Joint to df
 df<-df %>% left_join(., offset) 
 
@@ -100,7 +90,7 @@ df<-df %>% left_join(., offset)
 df<-df %>% mutate(waterDepth = waterHeight + offset)
 
 #Subset to waterDepth (after inspection!)
-df<-df %>% select(Timestamp, Site_Name, waterHeight, waterDepth) 
+df<-df %>% select(Timestamp, Site_Name, waterDepth) 
 
 #Add prcessing level
 df$processing_level<-"raw"

@@ -17,7 +17,6 @@ dygraph_QAQC_fun<-function(waterDepth, historic=NULL, updated=NULL){
   
   #Convert to xts format
   waterDepth_xts<-waterDepth %>% 
-    select(-Site_Name) %>% 
     arrange(Timestamp) %>% 
     replace_na(list(
       waterDepth = 2000, 
