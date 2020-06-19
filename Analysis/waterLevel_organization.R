@@ -25,6 +25,7 @@ library(tidyverse)
 
 #Define working dir
 data_dir<-"C:/Users/cnjones7/Box Sync/My Folders/Research Projects/SWI/PT_Data/"
+output_dir<-"C:/Users/cnjones7/Box Sync/My Folders/Research Projects/SWI/Processed_Data/"
 
 #Set system time zone 
 Sys.setenv(TZ="America/New_York")
@@ -37,8 +38,18 @@ files<-list.files(data_dir, full.names = TRUE, recursive = TRUE)
 files<-files[str_detect(files, "waterLevel")]
 
 #Download data
-df<-lapply(files,read_csv) %>% bind_rows() %>% drop_na()
-write_csv(df, paste0(data_dir, "output.csv"))
+df<-lapply(files,read_csv) %>% 
+  bind_rows() %>% 
+  drop_na() 
+
+#Make into wide format!
+output<-df %>% 
+  pivot_wider(names_from = Site_Name, 
+              values_from = waterDepth) %>% 
+  rename(Timestamp_GMT = Timestamp)
+
+#Export to output dir
+write_csv(df, paste0(output_dir, "waterLevel.csv"))
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #3.0 Plot for funzies-----------------------------------------------------------
@@ -76,4 +87,6 @@ bp<-df %>%
       xlab("Site") + ylab("Mean Daily Water Level [m]")
 
 #patchwork plot
+png(paste0(output_dir,"hydro.png"), width = 7, height = 9, units="in", res=300)
 ts + bp + plot_layout(ncol=1)
+dev.off()
