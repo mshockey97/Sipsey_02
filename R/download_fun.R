@@ -8,7 +8,7 @@
 #download absolute pressure data
 download_fun<-function(file_path){
   #Download data
-  temp<-read_csv(paste0(file_path), skip=1)
+  temp<-read_csv(paste0(file_path), skip=1) %>% as_tibble()
   
   #Determine serial number
   serial_number<-colnames(temp)[grep("LGR",colnames(temp))][1]  #Find collumn name with serial number
@@ -33,9 +33,24 @@ download_fun<-function(file_path){
                 regexpr("Abs Pres,", units)+10,
                 regexpr("Abs Pres,", units)+12)
   
-  #Organize
+  #Organize Collumns
   colnames(temp)<-c("ID","Timestamp","pressureAbsolute", "temp")
   temp<-temp[,c("Timestamp","pressureAbsolute", "temp")]
+  
+  #Format timezone
+  if(year(strptime(temp$Timestamp[1], format = "%m/%d/%Y %H:%M"))>2000){
+    temp<-temp %>%
+      #Select collumns of interest
+      dplyr::select(Timestamp, pressureAbsolute, temp) %>%
+      #Convert to POSIX
+      dplyr::mutate(Timestamp = as.POSIXct(strptime(Timestamp, "%m/%d/%Y %H:%M"), tz = time_zone))  %>%
+      #Convert to GMT
+      dplyr::mutate(Timestamp = with_tz(Timestamp, "GMT")) %>%
+      #Order the intput
+      dplyr::arrange(Timestamp)
+  }
+    
+  if(!is.na(strptime(temp$Timestamp[1], format = "%m/%d/%y %I:%M:%S %p"))){
   temp<-temp %>%
     #Select collumns of interest
     dplyr::select(Timestamp, pressureAbsolute, temp) %>%
@@ -45,6 +60,11 @@ download_fun<-function(file_path){
     dplyr::mutate(Timestamp = with_tz(Timestamp, "GMT")) %>%
     #Order the intput
     dplyr::arrange(Timestamp)
+  }
+  
+  #Format Timestamp for dygraphs
+  temp$Timestamp = format(temp$Timestamp, format = "%m/%d/%y %I:%M:%S %p")
+  temp$Timestamp = as.POSIXct(temp$Timestamp, format = "%m/%d/%y %I:%M:%S %p")
   
   #Convert from psi to kpa if necessary
   if(units=="psi"){temp$pressureAbsolute<-6.89476*temp$pressureAbsolute}
@@ -53,7 +73,7 @@ download_fun<-function(file_path){
   temp$Sonde_ID<-serial_number
   
   #Add download data
-  temp$download_date<-as.Date.POSIXct(max(temp$Timestamp))
+  temp$download_date<-as_date(max(temp$Timestamp))
   
   #Export temp
   temp

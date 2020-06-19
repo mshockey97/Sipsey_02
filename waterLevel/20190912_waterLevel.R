@@ -14,8 +14,7 @@
 # Step 6: Print
 
 #Log Notes~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#Check out originall offset from EP sites. Something seems off...
-
+#AL-D has a weird shift. Was their a big storm. If not, then the shift is off...
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Step 1: Setup workspace-------------------------------------------------------
@@ -28,7 +27,6 @@ remove(list=ls())
 library(xts)
 library(dygraphs)
 library(lubridate)
-library(zoo)
 library(tidyverse)
 
 #Read custom R functions
@@ -42,7 +40,7 @@ data_dir<-"C:\\Users\\cnjones7\\Box Sync\\My Folders\\Research Projects\\SWI\\PT
 
 #list pt and baor file locations
 pt_files<-list.files(paste0(data_dir, "export"), full.names =  TRUE)
-baro_files<-pt_files[str_detect(pt_files, "20292501")]
+baro_files<-pt_files[str_detect(pt_files, "baro")]
 field_files<-paste0(data_dir, 'well_log.csv')
 offset<-read_csv("C:\\Users\\cnjones7\\Box Sync\\My Folders\\Research Projects\\SWI\\PT_Data\\offset.csv")
 
@@ -68,13 +66,13 @@ baro_key<-tibble(
   Site_Name = field_log$Site_Name,
   baro = NA) %>% 
   #Greenhead Sites
-  mutate(baro = ifelse(str_detect(Site_Name,"GR"), "GR-Baro", baro)) %>% 
+  mutate(baro = ifelse(str_detect(Site_Name,"GR"), "palmer_baro", baro)) %>% 
   #Elmwood Sites
-  mutate(baro = ifelse(str_detect(Site_Name,"EP"), "GR-Baro", baro)) %>% 
+  mutate(baro = ifelse(str_detect(Site_Name,"EP"), "palmer_baro", baro)) %>% 
   #Almodington
-  mutate(baro = ifelse(str_detect(Site_Name,"AL"), "GR-Baro", baro)) %>% 
+  mutate(baro = ifelse(str_detect(Site_Name,"AL"), "palmer_baro", baro)) %>% 
   #Barneck
-  mutate(baro = ifelse(str_detect(Site_Name,"BN"), "GR-Baro", baro))
+  mutate(baro = ifelse(str_detect(Site_Name,"BN"), "palmer_baro", baro))
 
 #Gather baro data
 baro<-lapply(baro_files, download_fun) %>% 
@@ -85,12 +83,10 @@ baro<-lapply(baro_files, download_fun) %>%
 baro %>% select(Timestamp, pressureAbsolute) %>%  dygraph_ts_fun()
   
 #Create interpolation function 
-bn_baro<-baro %>% filter(Site_Name == 'GR-Baro') 
-gr_baro<-baro %>% filter(Site_Name == 'GR-Baro') 
+palmer_baro<- baro %>% filter(Site_Name == 'palmer_baro') 
 
 #create interp functions
-gr_baro_fun<-approxfun(gr_baro$Timestamp, gr_baro$pressureAbsolute)
-bn_baro_fun<-approxfun(bn_baro$Timestamp, bn_baro$pressureAbsolute)
+palmer_baro_fun<-approxfun(palmer_baro$Timestamp, palmer_baro$pressureAbsolute)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Step 4: WaterDepth Data-------------------------------------------------------
@@ -101,24 +97,12 @@ df<-lapply(pt_files, download_fun) %>% bind_rows()
 #Joint to df
 df<-df %>% left_join(., field_log) 
 
-#Seperate correct from date error
-correct<-df %>% filter(Timestamp<ymd_hms("2030-01-01 12:00:00"))
-df<-df %>% filter(Timestamp>ymd_hms("2030-01-01 12:00:00"))
-
-#Correct date issue
-df<-df %>% mutate(Timestamp = Timestamp - days(12626))
-df<-bind_rows(df, correct)
-
 #Assign baro pressure
 df<-df %>% 
   #Add baro key data
   left_join(., baro_key) %>% 
   #Interpolate barometric pressure from loggers
-  mutate(
-    gr_baro = gr_baro_fun(Timestamp),
-    bn_baro = bn_baro_fun(Timestamp)) %>% 
-  #Based on baro_key, assign baro pressure
-  mutate(pressureBaro = if_else(baro == 'GR-Baro',gr_baro,bn_baro)) %>% 
+  mutate(pressureBaro = palmer_baro_fun(Timestamp)) %>% 
   #Clean up
   select(Site_Name, Timestamp, pressureAbsolute, pressureBaro)
 
@@ -155,671 +139,547 @@ waterDepth <- df %>% filter(Site_Name==site)
 historic<-h_record %>% filter(Site_Name==site)
 dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth - 0.098)
+
+#remove weird periods
+updated<-updated %>%
+  filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+# #5.2 BN-B-----------------------------------------------------------------------
+# #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+site<-"BN-B"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth > -1)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# # # #5.2 BN-B-----------------------------------------------------------------------
-# # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# # site<-"BN-B"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
-# 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth)
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth -0.098)
+
+#remove weird periods
+updated<-updated %>%
+  filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
 # #5.3 BN-C-----------------------------------------------------------------------
 # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"BN-C"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
+site<-"BN-C"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth)
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-#  
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth -0.098)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
 # #5.4 BN-D-----------------------------------------------------------------------
 # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"BN-D"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
+site<-"BN-D"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth)
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.5 BN-E-----------------------------------------------------------------------
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth -0.098 )
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.5 AL-A-----------------------------------------------------------------------
 # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"BN-E"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
-# 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-#  
-# #5.6 AL-A-----------------------------------------------------------------------
-#Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 site<-"AL-A"
 waterDepth <- df %>% filter(Site_Name==site)
 historic<-h_record %>% filter(Site_Name==site)
 dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth)
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-#5.7 AL-B-----------------------------------------------------------------------
-#Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth -0.082 )
+
+#remove weird periods
+updated<-updated %>%
+  filter(waterDepth > -1)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.6 AL-B-----------------------------------------------------------------------
+# #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 site<-"AL-B"
 waterDepth <- df %>% filter(Site_Name==site)
 historic<-h_record %>% filter(Site_Name==site)
 dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.8 AL-C-----------------------------------------------------------------------
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth -0.082 )
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.7 AL-C-----------------------------------------------------------------------
 # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"AL-C"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
+site<-"AL-C"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.9 AL-D-----------------------------------------------------------------------
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth-0.082 )
+
+#remove weird periods
+updated<-updated %>%
+  filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.8 AL-D-----------------------------------------------------------------------
 # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"AL-D"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
+site<-"AL-D"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.10 EP-A-----------------------------------------------------------------------
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth-0.175)
+
+#remove weird periods
+updated<-updated %>%
+  filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.9 EP-A-----------------------------------------------------------------------
 # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"EP-A"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
+site<-"EP-A"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth-0.085)
+
+#remove weird periods
 # updated<-updated %>%
-#   filter(waterDepth> -1.5)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.11 EP-B-----------------------------------------------------------------------
+#   filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.10 EP-B-----------------------------------------------------------------------
 # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"EP-B"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
+site<-"EP-B"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth-0.085)
+
+#remove weird periods
 # updated<-updated %>%
-#   filter(waterDepth> -2)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# # #5.12 EP-C-----------------------------------------------------------------------
+#   filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.11 EP-C-----------------------------------------------------------------------
 # #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"EP-C"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
+site<-"EP-C"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth-0.085)
+
+#remove weird periods
 # updated<-updated %>%
-#   filter(waterDepth> -2)
+#   filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.12 GR-A ---------------------------------------------------------------------
+#Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+site<-"GR-A"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Add rolling average
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth-0.093)
+
+#remove weird periods
+updated<-updated %>%
+  filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.13 GR-B ---------------------------------------------------------------------
+#Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+site<-"GR-B"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
+# 
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth)
+
+#remove weird periods
 # updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
+#   filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=8, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.14 GR-C ---------------------------------------------------------------------
+#Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+site<-"GR-C"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth)
+
+#remove weird periods
+updated<-updated %>%
+  filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=8, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#5.14 GR-D ---------------------------------------------------------------------
+#Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+site<-"GR-D"
+waterDepth <- df %>% filter(Site_Name==site)
+historic<-h_record %>% filter(Site_Name==site)
+dygraph_QAQC_fun(waterDepth, historic)
 # 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.13 GR-A-----------------------------------------------------------------------
-# #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"GR-A"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
-# 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -1.5)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# # #5.14 GR-B-----------------------------------------------------------------------
-# #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"GR-B"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
-# 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth)
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -1.5)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.15 GR-C-----------------------------------------------------------------------
-# #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"GR-C"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
-# 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth )
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -1.5)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.16 GR-D-----------------------------------------------------------------------
-# #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"GR-D"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
-# 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth)
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -1.5)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.17 GR-E-----------------------------------------------------------------------
-# #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"GR-E"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
-# 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth)
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -1.5)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #5.18 GR-E-----------------------------------------------------------------------
-# #Organize data~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# site<-"GR-F"
-# waterDepth <- df %>% filter(Site_Name==site)
-# historic<-h_record %>% filter(Site_Name==site)
-# dygraph_QAQC_fun(waterDepth, historic)
-# 
-# #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add offset to match historic
-# updated<-waterDepth %>%
-#   mutate(waterDepth = waterDepth)
-# 
-# #remove weird periods
-# updated<-updated %>%
-#   filter(waterDepth> -1.5)
-# 
-# #Add rolling average
-# updated<-updated %>%
-#   mutate(waterDepth = rollmean(waterDepth, k=5, fill=NA))
-# 
-# #interpolate between weird periods
-# interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
-# updated<-tibble(
-#   Timestamp = waterDepth$Timestamp,
-#   waterDepth = interpfun(waterDepth$Timestamp))
-# 
-# #Inspect output
-# dygraph_QAQC_fun(waterDepth, historic, updated)
-# 
-# #print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# #Add info to 'updated' dataframe
-# updated$Site_Name = site
-# updated$processing_level = 'processed'
-# 
-# #Append master dataframe
-# df<-bind_rows(df, updated)
-# 
-# #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# # Step 6: Print-----------------------------------------------------------------
-# #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# df<-df %>%
-#   select(Timestamp, Site_Name, waterDepth, processing_level) %>%
-#   filter(processing_level == 'processed') %>%
-#   select(-processing_level)
-# write_csv(df, paste0(data_dir,"20190709_waterLevel.csv"))
-# 
+#Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add offset to match historic
+updated<-waterDepth %>%
+  mutate(waterDepth = waterDepth-0.085)
+
+#remove weird periods
+updated<-updated %>%
+  filter(waterDepth > -1.5)
+
+#Add rolling average
+updated<-updated %>%
+  mutate(waterDepth = rollmean(waterDepth, k=8, fill=NA))
+
+#interpolate between weird periods
+interpfun<-approxfun(updated$Timestamp, updated$waterDepth)
+updated<-tibble(
+  Timestamp = waterDepth$Timestamp,
+  waterDepth = interpfun(waterDepth$Timestamp))
+
+#Inspect output
+dygraph_QAQC_fun(waterDepth, historic, updated)
+
+#print~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Add info to 'updated' dataframe
+updated$Site_Name = site
+updated$processing_level = 'processed'
+
+#Append master dataframe
+df<-bind_rows(df, updated)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Step 6: Print-----------------------------------------------------------------
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+df<-df %>%
+  select(Timestamp, Site_Name, waterDepth, processing_level) %>%
+  filter(processing_level == 'processed') %>%
+  select(-processing_level)
+write_csv(df, paste0(data_dir,"20190912_waterLevel.csv"))
+

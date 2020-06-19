@@ -1,7 +1,7 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Name: Threshold Analysis
 # Coder: C. Nathan Jones
-# Date: 6 July 2019
+# Date: 6/5/2020
 # Purpose: Estimate periods when water levels are above a give threshold
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -12,21 +12,9 @@
 remove(list=ls())
 
 #load relevant packages
-library(xts)
-library(dygraphs)
-library(parallel)
-library(devtools)
-#devtools::install_github("khondula/rodm2")
-library(RSQLite)
-library(DBI)
-library(rodm2)
-library(zoo)
+library(patchwork)
 library(lubridate)
-library(readxl)
 library(tidyverse)
-
-#Read custom R functions
-source("R/db_get_ts.R")
 
 #Define working dir
 data_dir<-"C:/Users/cnjones7/Box Sync/My Folders/Research Projects/SWI/PT_Data/"
@@ -37,83 +25,119 @@ output_dir<-"C:/Users/cnjones7/Box Sync/My Folders/Research Projects/SWI/Thresho
 #Set system time zone 
 Sys.setenv(TZ="America/New_York")
 
-#Define database connection
-db<-dbConnect(RSQLite::SQLite(),paste0(data_dir, "SWI.sqlite"))
-
-#Define GW sites
-sites<-tibble(site_code = db_get_sites(db)) %>% 
-  filter(str_detect(site_code,"-A") |
-         str_detect(site_code,"-B") |
-         str_detect(site_code,"-C")) %>%
-  filter(!str_detect(site_code,"EL-")) %>%
-  as.matrix(.)
-  
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #2.0 Download data--------------------------------------------------------------
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#Develop download function
-fun<-function(site, 
-              start_date = mdy("8-24-2018"), 
-              end_date   = mdy("3-7-2019")){
-  #download data
-  temp<-db_get_ts(db, paste(site), "waterDepth", start_date, end_date) %>% as_tibble(.)
-  
-  #add site collumn
-  colnames(temp)<-c("Timestamp", "waterLevel")
-  temp$site = paste(site)
-  
-  #Export to .GlovalEnv
-  temp 
-}
+#DEfine waterLevel files
+files<-list.files(data_dir, full.names = TRUE, recursive = TRUE)
+files<-files[str_detect(files, "waterLevel")]
 
-#Apply function
-df<-lapply(sites, fun) %>% bind_rows(.)
+#Download data
+df<-lapply(files,read_csv) %>% bind_rows()
+
+#Subset to upland well info
+upland<-df %>% 
+  #Filter by site
+  filter(str_detect(Site_Name, "BN") |
+         str_detect(Site_Name, "GR")) %>% 
+  #Filter by well
+  filter(str_detect(Site_Name,"-A") |
+         str_detect(Site_Name,"-B") |
+         str_detect(Site_Name,"-C")) %>%
+  #Filter by date
+  filter(Timestamp>mdy_hms("6-5-2019  00:00:01") &
+         Timestamp<mdy_hms("7-15-2019 00:00:01"))
+
+#Subset ditch well info 
+ditch<-df %>% 
+  #Filter by site
+  filter(str_detect(Site_Name, "BN") |
+           str_detect(Site_Name, "GR")) %>% 
+  #Filter by well
+  filter(str_detect(Site_Name,"-D")) %>%
+  #Filter by date
+  filter(Timestamp>mdy_hms("6-5-2019  00:00:01") &
+           Timestamp<mdy_hms("7-15-2019 00:00:01"))
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #3.0 Analysis-------------------------------------------------------------------
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #3.1 Aggregate by day and site--------------------------------------------------
 #Tidy data
-df<-df %>%
+upland<-upland %>%
   mutate(Timestamp = floor_date(Timestamp,'day'),
-         site = substr(site, 1,2)) %>%
+         site = substr(Site_Name, 1,2)) %>%
   group_by(site, Timestamp) %>%
-  summarise(waterLevel=mean(waterLevel, na.rm=T))
+  summarise(waterDepth=mean(waterDepth, na.rm=T))
+ditch<-ditch %>% 
+  mutate(Timestamp = floor_date(Timestamp,"day"), 
+         site = substr(Site_Name, 1,2)) %>% 
+  group_by(site, Timestamp) %>% 
+  summarise(waterDepth=mean(waterDepth, na.rm = T))
 
 #plot
-df %>% 
+upland_plot<-upland %>% 
   #Start Plotting Device
-  ggplot(aes(x=Timestamp, y=waterLevel)) +
+  ggplot(aes(x=Timestamp, y=waterDepth)) +
   #Start facet   
   facet_grid(site~.) +
   #Add line
   geom_line() +
   #Add Theme
   theme_bw() +
-    labs(x="Timestamp", y= "Water Depth [m]")
-ggsave(paste0(output_dir, "hydrograph.png"), width=5, height=7, units="in")
+    labs(x="Timestamp", y= "Mean Upland Water Level [m/day]")
 
+ditch_plot<-ditch %>% 
+  #Start Plotting Device
+  ggplot(aes(x=Timestamp, y=waterDepth)) +
+  #Start facet   
+  facet_grid(site~.) +
+  #Add line
+  geom_line() +
+  #Add Theme
+  theme_bw() +
+  labs(x="Timestamp", y= "Ditch Water Level [m/day]")
 
-#3.2 Estimate Time avoe threshold-----------------------------------------------
+upland_plot + ditch_plot
+
+#3.2 Estimate Time above threshold----------------------------------------------
+#Upland wells~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Define Threshold
-threshold<- -0.15 #05 cm
+threshold<- -0.15 #15 cm
 
 #Estimate duration above threshold
-df<-df %>%
-  filter(Timestamp>mdy("11/1/2018")) %>%
-  filter(waterLevel > threshold) %>%
+upland %>%
+  filter(waterDepth > threshold) %>%
   group_by(site) %>%
   tally() %>% 
   arrange(n)
 
-#Plot
-df$site<-factor(df$site, levels=c("EP", "AL", "GR", "BN"))
-df %>% 
-  ggplot(aes(x=site, y=n))+
-    geom_bar(stat = "identity") +
-    theme_bw() +
-      labs(x="Site", y="Days above threshold")
-ggsave(paste0(output_dir, "threshold.png"), width=3.5, height=3, units="in")
+# #Plot
+# upland$site<-factor(upland$site, levels=c("EP", "AL", "GR", "BN"))
+# upland %>% 
+#   ggplot(aes(x=site, y=n))+
+#     geom_bar(stat = "identity") +
+#     theme_bw() +
+#       labs(x="Site", y="Days above threshold")
+# ggsave(paste0(output_dir, "threshold.png"), width=3.5, height=3, units="in")
 
+#SW Inundation~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#Define thresholds
+threshold<-tibble(
+  site = c("BN","GR"),
+  threshold_depth = c(0.164592, 0.128016)
+)
 
+#join threshold data to ditch data
+ditch<-left_join(ditch, threshold)
+
+#Count when waterDepth greater than threshold
+ditch %>% 
+  mutate(flood = if_else(waterDepth>=threshold_depth, 1, 0)) %>% 
+  group_by(site) %>% 
+  summarise(flood = sum(flood, na.rm=T))
+
+#3.3 Estimate Metrics----------------------------------------------------------
+upland %>% group_by(site) %>% summarise(waterDepth = mean(waterDepth,na.rm=T))
+ditch %>% group_by(site) %>% summarise(waterDepth = mean(waterDepth,na.rm=T))
 

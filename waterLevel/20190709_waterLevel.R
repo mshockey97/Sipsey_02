@@ -14,8 +14,6 @@
 # Step 6: Print
 
 #Log Notes~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#Check out originall offset from EP sites. Something seems off...
-
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Step 1: Setup workspace-------------------------------------------------------
@@ -68,13 +66,13 @@ baro_key<-tibble(
   Site_Name = field_log$Site_Name,
   baro = NA) %>% 
   #Greenhead Sites
-  mutate(baro = ifelse(str_detect(Site_Name,"GR"), "GR-Baro", baro)) %>% 
+  mutate(baro = ifelse(str_detect(Site_Name,"GR"), "palmer_baro", baro)) %>% 
   #Elmwood Sites
-  mutate(baro = ifelse(str_detect(Site_Name,"EP"), "GR-Baro", baro)) %>% 
+  mutate(baro = ifelse(str_detect(Site_Name,"EP"), "palmer_baro", baro)) %>% 
   #Almodington
-  mutate(baro = ifelse(str_detect(Site_Name,"AL"), "GR-Baro", baro)) %>% 
+  mutate(baro = ifelse(str_detect(Site_Name,"AL"), "palmer_baro", baro)) %>% 
   #Barneck
-  mutate(baro = ifelse(str_detect(Site_Name,"BN"), "BN-Baro", baro))
+  mutate(baro = ifelse(str_detect(Site_Name,"BN"), "palmer_baro", baro))
 
 #Gather baro data
 baro<-lapply(baro_files, download_fun) %>% 
@@ -82,27 +80,14 @@ baro<-lapply(baro_files, download_fun) %>%
   left_join(., field_log)
 
 #Plot to check for any issues
-baro %>% select(Timestamp, pressureAbsolute) %>%  dygraph_ts_fun()
+baro %>% select(Timestamp, pressureAbsolute) %>% drop_na() %>%  dygraph_ts_fun()
   
 #Create interpolation function 
-bn_baro<-baro %>% filter(Site_Name == 'BN-Baro') 
-gr_baro<-baro %>% filter(Site_Name == 'GR-Baro') 
-
-#Grab old baro data to fill in gaps
-h_baro<-"C:\\Users\\cnjones7\\Box Sync\\My Folders\\Research Projects\\SWI\\PT_Data\\20190315_Downloads\\export\\SWI_BN_Baro.csv"
-h_baro<-download_fun(h_baro)
-h_baro<-h_baro %>% filter(Timestamp>mdy_hms('3-9-2019 12:00:00'))
-
-#Fill in missing baro logger gaps
-bn_baro<-bind_rows(h_baro, bn_baro)
-gr_baro<-bind_rows(
-  bn_baro %>% filter(Timestamp<ymd_hm("2019-05-17 15:00")),
-  gr_baro)
+palmer_baro<-baro %>% filter(Site_Name == 'palmer_baro') 
 
 #create interp functions
-gr_baro_fun<-approxfun(gr_baro$Timestamp, gr_baro$pressureAbsolute)
-bn_baro_fun<-approxfun(bn_baro$Timestamp, bn_baro$pressureAbsolute)
-
+palmer_baro_fun<-approxfun(palmer_baro$Timestamp, palmer_baro$pressureAbsolute)
+ 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Step 4: WaterDepth Data-------------------------------------------------------
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -116,12 +101,8 @@ df<-df %>% left_join(., field_log)
 df<-df %>% 
   #Add baro key data
   left_join(., baro_key) %>% 
-  #Interpolate barometric pressure from loggers
-  mutate(
-    gr_baro = gr_baro_fun(Timestamp),
-    bn_baro = bn_baro_fun(Timestamp)) %>% 
   #Based on baro_key, assign baro pressure
-  mutate(pressureBaro = if_else(baro == 'GR-Baro',gr_baro,bn_baro)) %>% 
+  mutate(pressureBaro = palmer_baro_fun(Timestamp)) %>% 
   #Clean up
   select(Site_Name, Timestamp, pressureAbsolute, pressureBaro)
 
@@ -161,7 +142,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>% 
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth-0.085)
 
 #remove weird periods
 updated<-updated %>% 
@@ -198,7 +179,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth)
+  mutate(waterDepth = waterDepth-0.085)
 
 #remove weird periods
 updated<-updated %>%
@@ -235,7 +216,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth)
+  mutate(waterDepth = waterDepth-0.085)
 
 #remove weird periods
 updated<-updated %>%
@@ -272,7 +253,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth)
+  mutate(waterDepth = waterDepth-0.067)
 
 #remove weird periods
 updated<-updated %>%
@@ -309,7 +290,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth - 0.10 )
 
 #remove weird periods
 updated<-updated %>%
@@ -346,7 +327,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth)
+  mutate(waterDepth = waterDepth-0.08)
 
 #remove weird periods
 updated<-updated %>%
@@ -383,7 +364,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth - 0.08 )
 
 #remove weird periods
 updated<-updated %>%
@@ -420,7 +401,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth -0.08)
 
 #remove weird periods
 updated<-updated %>%
@@ -457,7 +438,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth - 0.08 )
 
 #remove weird periods
 updated<-updated %>%
@@ -494,7 +475,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth - 0.08 )
 
 #remove weird periods
 updated<-updated %>%
@@ -531,7 +512,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth - 0.08 )
 
 #remove weird periods
 updated<-updated %>%
@@ -568,7 +549,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth - 0.08 )
 
 #remove weird periods
 updated<-updated %>%
@@ -605,7 +586,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth - 0.08 )
 
 #remove weird periods
 updated<-updated %>%
@@ -679,7 +660,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth )
+  mutate(waterDepth = waterDepth - 0.08 )
 
 #remove weird periods
 updated<-updated %>%
@@ -716,7 +697,7 @@ dygraph_QAQC_fun(waterDepth, historic)
 #Manual Edits~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Add offset to match historic
 updated<-waterDepth %>%
-  mutate(waterDepth = waterDepth)
+  mutate(waterDepth = waterDepth-.08)
 
 #remove weird periods
 updated<-updated %>%
