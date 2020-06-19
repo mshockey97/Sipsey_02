@@ -1,4 +1,4 @@
-#SWI Water Level Project
+# SWI Water Level Project
 Collaborative project with Kate Tully's Lab @UMD examining the impact of Salt Water Intrusion on eastern shore agricultural systems. 
 
 ## File Descriptions
