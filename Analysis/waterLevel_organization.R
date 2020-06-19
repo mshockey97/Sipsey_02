@@ -49,7 +49,7 @@ output<-df %>%
   rename(Timestamp_GMT = Timestamp)
 
 #Export to output dir
-write_csv(df, paste0(output_dir, "waterLevel.csv"))
+write_csv(output, paste0(output_dir, "waterLevel.csv"))
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #3.0 Plot for funzies-----------------------------------------------------------
