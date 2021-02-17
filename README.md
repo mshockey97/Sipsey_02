@@ -1,7 +1,8 @@
-# SWI Water Level Project
-Collaborative project with Kate Tully's Lab @UMD examining the impact of Salt Water Intrusion on eastern shore agricultural systems. 
+# waterLevel data processing demo
 
 ## File Descriptions
+
+**Everything below needs to be updated!**
 
 **R** This file contains multiple RScripts used to process waterLevel data. These include functions to load hobo .csv exports,  cross reference field sheets with logger files, and create interactive dygraphs for QAQC purposes. 
 
