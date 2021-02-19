@@ -1,6 +1,6 @@
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Title: waterLevel 
-#Coder: Nate Jones (cnjones7@ua.edu)
+#Coder: Matt shockey (mshockey97@gmail.com)
 #Date: 6/3/2020
 #Purpose: Re-analysis of water level data downloaded March 2019
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -14,7 +14,7 @@
 # Step 6: Print
 
 #Log Notes~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#AL-D has a weird shift. Was their a big storm. If not, then the shift is off...
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Step 1: Setup workspace-------------------------------------------------------
@@ -36,18 +36,23 @@ source("R/dygraph_ts_fun.R")
 source("R/dygraph_QAQC_fun.R")
 
 #Define data directory
-data_dir<-"C:\\Users\\cnjones7\\Box Sync\\My Folders\\Research Projects\\SWI\\PT_Data\\20190912_Downloads\\"
+data_dir<-"C:\\Users\\Matthew\\Desktop\\sipsydata\\Sipsey_022021\\data\\"
 
 #list pt and baor file locations
-pt_files<-list.files(paste0(data_dir, "export"), full.names =  TRUE)
+pt_files<-list.files(paste0(data_dir), full.names =  TRUE) %>% 
+  as_tibble() %>% 
+  filter(!str_detect(value, 'offset')) %>% 
+  filter(!str_detect(value, 'well_log.csv')) %>%
+  filter(!str_detect(value, 'baro.csv')) %>% 
+  as_vector()
 baro_files<-pt_files[str_detect(pt_files, "baro")]
 field_files<-paste0(data_dir, 'well_log.csv')
-offset<-read_csv("C:\\Users\\cnjones7\\Box Sync\\My Folders\\Research Projects\\SWI\\PT_Data\\offset.csv")
-
+offset<-read_csv(paste0(data_dir, 'offset.csv'))
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Step 2: Field Worksheet--------------------------------------------------------
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Download Field Worksheet
+
 field_log<-read_csv(field_files)
 
 #Check to make sure pt files match field logs

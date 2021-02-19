@@ -1,8 +1,9 @@
+
 #Grab info from files
 file_fun<-function(n){
   
   #Download data
-  temp<-read_csv(pt_files[n], skip=1)
+  temp<-read_csv(paste0(data_dir,"1c.csv"), skip=1)
   
   #Determine serial number
   serial_number<-colnames(temp)[grep("LGR",colnames(temp))][1]  #Find collumn name with serial number
@@ -17,10 +18,13 @@ file_fun<-function(n){
                     regexpr('GMT', time_zone)[1],
                     nchar(time_zone))
   time_zone<-if_else(time_zone=="GMT-04:00",
-                     "CST",
+                     "EST",
                      if_else(time_zone=="GMT-05:00",
                              "EDT",
-                             "-9999"))
+                             
+                             if_else(time_zone=="GMT-06:00",
+                                     "CST",         
+                                     "-9999")))
   #Determin units
   units<-colnames(temp)[grep("Abs Pres,",colnames(temp))]
   units<-substr(units,
@@ -79,4 +83,4 @@ check_fun<-function(pt_files,field_log){
     output
   }
 }
-  
+
