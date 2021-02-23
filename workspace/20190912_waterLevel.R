@@ -45,6 +45,7 @@ pt_files<-list.files(paste0(data_dir), full.names =  TRUE) %>%
   filter(!str_detect(value, 'well_log.csv')) %>%
   filter(!str_detect(value, '.log')) %>% 
   filter(!str_detect(value, '.bar')) %>% 
+  filter(!str_detect(value, '.xlsx')) %>% 
   as_vector()
 baro_files<-pt_files[str_detect(pt_files, "baro")]
 field_files<-paste0(data_dir, 'well_log.csv')

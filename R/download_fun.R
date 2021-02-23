@@ -12,11 +12,8 @@ download_fun<-function(file_path){
   
   #Determine serial number
   serial_number<-colnames(temp)[grep("LGR",colnames(temp))][1]  #Find collumn name with serial number
-  serial_number<-substr(serial_number,   #isolate serial number
-                        gregexpr("SEN.S.N",serial_number)[[1]][1]+9, #Start
-                        nchar(serial_number)-1) #stop
-  serial_number<-as.numeric(serial_number) 
-  
+  serial_number<-parse_number(serial_number)
+
   #Determine TZ
   time_zone<-colnames(temp)[grep("GMT",colnames(temp))]  #Grab collumn name w/ time offset
   time_zone<-substr(time_zone,
