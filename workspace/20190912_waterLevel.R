@@ -36,23 +36,24 @@ source("R/dygraph_ts_fun.R")
 source("R/dygraph_QAQC_fun.R")
 
 #Define data directory
-data_dir<-"C:\\Users\\Matthew\\Desktop\\sipsydata\\Sipsey_022021\\data\\"
+data_dir<-"data//202102//export//"
 
 #list pt and baor file locations
 pt_files<-list.files(paste0(data_dir), full.names =  TRUE) %>% 
   as_tibble() %>% 
   filter(!str_detect(value, 'offset')) %>% 
   filter(!str_detect(value, 'well_log.csv')) %>%
-  filter(!str_detect(value, 'baro.csv')) %>% 
+  filter(!str_detect(value, '.log')) %>% 
+  filter(!str_detect(value, '.bar')) %>% 
   as_vector()
 baro_files<-pt_files[str_detect(pt_files, "baro")]
 field_files<-paste0(data_dir, 'well_log.csv')
-offset<-read_csv(paste0(data_dir, 'offset.csv'))
+#offset<-read_csv(paste0(data_dir, 'offset.csv'))
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Step 2: Field Worksheet--------------------------------------------------------
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #Download Field Worksheet
-
 field_log<-read_csv(field_files)
 
 #Check to make sure pt files match field logs
@@ -66,32 +67,22 @@ field_log<-field_log %>%
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Step 3: Barometric Pressure Data----------------------------------------------
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#Create list of sites and associated barometric logger
-baro_key<-tibble(
-  Site_Name = field_log$Site_Name,
-  baro = NA) %>% 
-  #Greenhead Sites
-  mutate(baro = ifelse(str_detect(Site_Name,"GR"), "palmer_baro", baro)) %>% 
-  #Elmwood Sites
-  mutate(baro = ifelse(str_detect(Site_Name,"EP"), "palmer_baro", baro)) %>% 
-  #Almodington
-  mutate(baro = ifelse(str_detect(Site_Name,"AL"), "palmer_baro", baro)) %>% 
-  #Barneck
-  mutate(baro = ifelse(str_detect(Site_Name,"BN"), "palmer_baro", baro))
+#Read baro data (from ncdc station)
+baro<-read_csv(paste0(data_dir, "ncdc_baro.csv"))
 
-#Gather baro data
-baro<-lapply(baro_files, download_fun) %>% 
-  bind_rows() %>% 
-  left_join(., field_log)
+#process ncdc baro data
+baro<-baro %>% 
+  select(Timestamp = DATE, 
+         pressureAtmosphere = HourlyStationPressure) %>% 
+  #Convert in_Hg to kpa
+  mutate(pressureAbsolute = pressureAtmosphere*3.38639) %>% 
+  drop_na()
 
 #Plot to check for any issues
 baro %>% select(Timestamp, pressureAbsolute) %>%  dygraph_ts_fun()
   
-#Create interpolation function 
-palmer_baro<- baro %>% filter(Site_Name == 'palmer_baro') 
-
 #create interp functions
-palmer_baro_fun<-approxfun(palmer_baro$Timestamp, palmer_baro$pressureAbsolute)
+baro_fun<-approxfun(baro$Timestamp, baro$pressureAbsolute)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Step 4: WaterDepth Data-------------------------------------------------------
